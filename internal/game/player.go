@@ -10,6 +10,14 @@ type Player struct {
 	Vel Vec
 }
 
+// Tuning constants. Units are arena-units and seconds.
+const (
+	PlayerRadius   = 15.0
+	PlayerAccel    = 3000.0 // units/s^2 while a key is held
+	PlayerMaxSpeed = 400.0  // units/s
+	PlayerFriction = 8.0    // velocity lost per second, proportional to speed
+)
+
 // Input is the set of controls a client is holding during one tick.
 // It is a snapshot of state, not an event: "W is currently down",
 // not "W was just pressed".
