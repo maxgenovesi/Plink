@@ -8,6 +8,13 @@ import (
 // tick is the server's fixed timestep: 60 updates per second.
 const tick = 1.0 / 60.0
 
+// The arena the ClampTo tests run in. Any size comfortably larger than
+// 2*PlayerRadius works; these are the Phase 1 dimensions.
+const (
+	arenaW = 800.0
+	arenaH = 600.0
+)
+
 // TestPlayerUpdateSingleTickFromRest pins the exact arithmetic of one tick.
 // The constants are chosen so the numbers come out round:
 //
@@ -171,6 +178,137 @@ func TestPlayerUpdateIsDeterministic(t *testing.T) {
 	if a != b {
 		t.Errorf("divergence: %+v vs %+v", a, b)
 	}
+}
+
+// TestPlayerClampToInsideArena: a player nowhere near a wall must come out
+// byte-identical. A clamp that "helpfully" adjusts something in the common case
+// would be far worse than one that fails at the edges.
+func TestPlayerClampToInsideArena(t *testing.T) {
+	before := Player{ID: "p1", Pos: Vec{400, 300}, Vel: Vec{50, -25}}
+	after := before
+
+	after.ClampTo(arenaW, arenaH)
+
+	if after != before {
+		t.Errorf("ClampTo modified a player inside the arena: %+v, want %+v", after, before)
+	}
+}
+
+// TestPlayerClampToWalls checks each wall in turn. The want values are written
+// in terms of PlayerRadius on purpose: Pos is the circle's *centre*, so a
+// clamp to a bare 0 or w would leave half the player outside the arena.
+func TestPlayerClampToWalls(t *testing.T) {
+	tests := []struct {
+		name             string
+		pos, vel         Vec
+		wantPos, wantVel Vec
+	}{
+		{
+			"past the left wall",
+			Vec{-50, 300}, Vec{-200, 0},
+			Vec{PlayerRadius, 300}, Vec{0, 0},
+		},
+		{
+			"past the right wall",
+			Vec{900, 300}, Vec{200, 0},
+			Vec{arenaW - PlayerRadius, 300}, Vec{0, 0},
+		},
+		{
+			"past the top wall",
+			Vec{400, -20}, Vec{0, -200},
+			Vec{400, PlayerRadius}, Vec{0, 0},
+		},
+		{
+			"past the bottom wall",
+			Vec{400, 700}, Vec{0, 200},
+			Vec{400, arenaH - PlayerRadius}, Vec{0, 0},
+		},
+		{
+			// Exactly on the boundary is inside, not out: nothing is touched.
+			// Without this the bounds could drift to <= and nobody would notice.
+			"resting exactly against the wall",
+			Vec{PlayerRadius, 300}, Vec{-5, 40},
+			Vec{PlayerRadius, 300}, Vec{-5, 40},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := Player{ID: "p1", Pos: tt.pos, Vel: tt.vel}
+
+			p.ClampTo(arenaW, arenaH)
+
+			approxVec(t, p.Pos, tt.wantPos, "Pos")
+			approxVec(t, p.Vel, tt.wantVel, "Vel")
+		})
+	}
+}
+
+// TestPlayerClampToSlidesAlongWall is the case that justifies clearing one
+// component instead of the whole vector.
+//
+// Holding left+down against the left wall, the player should stop moving left
+// but keep sliding down. Zeroing all of Vel pins them in place, so holding two
+// keys would move you *less* than holding one -- a bug you can only find by
+// playing, which is exactly why it is worth a test.
+func TestPlayerClampToSlidesAlongWall(t *testing.T) {
+	p := Player{ID: "p1", Pos: Vec{-10, 300}, Vel: Vec{-200, 150}}
+
+	p.ClampTo(arenaW, arenaH)
+
+	approxEqual(t, p.Pos.X, PlayerRadius, "Pos.X (pushed back inside)")
+	approxEqual(t, p.Vel.X, 0, "Vel.X (into the wall, killed)")
+
+	approxEqual(t, p.Pos.Y, 300, "Pos.Y (untouched)")
+	approxEqual(t, p.Vel.Y, 150, "Vel.Y (along the wall, preserved)")
+}
+
+// TestPlayerClampToCorners: two walls at once zeroes both components, but only
+// because two independent checks each fired -- not because the whole vector is
+// thrown away.
+func TestPlayerClampToCorners(t *testing.T) {
+	tests := []struct {
+		name    string
+		pos     Vec
+		wantPos Vec
+	}{
+		{"top left", Vec{-10, -10}, Vec{PlayerRadius, PlayerRadius}},
+		{"top right", Vec{900, -10}, Vec{arenaW - PlayerRadius, PlayerRadius}},
+		{"bottom left", Vec{-10, 700}, Vec{PlayerRadius, arenaH - PlayerRadius}},
+		{"bottom right", Vec{900, 700}, Vec{arenaW - PlayerRadius, arenaH - PlayerRadius}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := Player{ID: "p1", Pos: tt.pos, Vel: Vec{-300, -300}}
+
+			p.ClampTo(arenaW, arenaH)
+
+			approxVec(t, p.Pos, tt.wantPos, "Pos")
+			approxVec(t, p.Vel, Vec{0, 0}, "Vel")
+		})
+	}
+}
+
+// TestPlayerUpdateThenClampStaysInArena runs the two together in the order the
+// server's tick loop will: Update, then ClampTo, every tick. Holding into a
+// corner for ten seconds must never once put the player outside the arena, and
+// must settle exactly in the corner rather than jittering against it.
+func TestPlayerUpdateThenClampStaysInArena(t *testing.T) {
+	p := Player{ID: "p1", Pos: Vec{arenaW / 2, arenaH / 2}}
+
+	for i := range 600 {
+		p.Update(Input{Up: true, Left: true}, tick)
+		p.ClampTo(arenaW, arenaH)
+
+		if p.Pos.X < PlayerRadius-eps || p.Pos.X > arenaW-PlayerRadius+eps ||
+			p.Pos.Y < PlayerRadius-eps || p.Pos.Y > arenaH-PlayerRadius+eps {
+			t.Fatalf("tick %d: Pos %+v is outside the arena", i, p.Pos)
+		}
+	}
+
+	approxVec(t, p.Pos, Vec{PlayerRadius, PlayerRadius}, "resting Pos")
+	approxVec(t, p.Vel, Vec{0, 0}, "resting Vel")
 }
 
 // FuzzPlayerUpdate throws random inputs at Update and asserts the invariants

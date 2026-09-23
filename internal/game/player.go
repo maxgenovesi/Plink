@@ -65,3 +65,33 @@ func (p *Player) Update(in Input, dt float64) {
 	// where integrating with the old one drifts.
 	p.Pos = p.Pos.Add(p.Vel.Scale(dt))
 }
+
+// ClampTo keeps the player fully inside a w x h arena, accounting for
+// PlayerRadius, and zeroes the velocity component that hit the wall.
+//
+// w and h are the arena's dimensions in arena-units; both must be larger than
+// 2*PlayerRadius, or the low and high bounds cross. Pos and Vel are written in
+// place; a player already inside the arena is left exactly as it was.
+func (p *Player) ClampTo(w, h float64) {
+	// Pos is the circle's centre, so the usable range is inset by the radius at
+	// both ends -- otherwise half the player hangs outside the wall.
+	if p.Pos.X < PlayerRadius {
+		p.Pos.X = PlayerRadius
+		p.Vel.X = 0
+	} else if p.Pos.X > w-PlayerRadius {
+		p.Pos.X = w - PlayerRadius
+		p.Vel.X = 0
+	}
+
+	// Each axis is handled on its own, and only the component that hit the wall
+	// is cleared. Zeroing the whole vector would stop a player pressed against
+	// the left wall from sliding down it, so holding two keys would move you
+	// less than holding one.
+	if p.Pos.Y < PlayerRadius {
+		p.Pos.Y = PlayerRadius
+		p.Vel.Y = 0
+	} else if p.Pos.Y > h-PlayerRadius {
+		p.Pos.Y = h - PlayerRadius
+		p.Vel.Y = 0
+	}
+}
