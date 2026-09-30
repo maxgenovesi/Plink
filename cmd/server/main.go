@@ -1,44 +1,29 @@
+// Command server runs the Plink game server: static assets plus one WebSocket
+// endpoint per player. It wires dependencies together and does nothing else --
+// the routing lives in internal/server, the simulation in internal/game.
 package main
 
 import (
-	"context"
 	"log"
 	"net/http"
+	"os"
 
-	"github.com/coder/websocket"
+	"github.com/maxgenovesi/Plink/internal/server"
 )
 
+// webDir is where Vite writes the built client. Served relative to the
+// process's working directory, so run the binary from the repository root.
+const webDir = "./web/dist"
+
 func main() {
-	mux := http.NewServeMux()
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	addr := ":" + port
 
-	// Serve static files from the "web" directory
-	mux.Handle("/", http.FileServer(http.Dir("./web")))
+	log.Printf("Plink listening on %s, serving %s", addr, webDir)
 
-	// Handle WebSocket connections at the "/ws" endpoint
-	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-			InsecureSkipVerify: true, // allows localhost connections during dev
-		})
-		if err != nil {
-			log.Println("accept error:", err)
-			return
-		}
-		defer conn.CloseNow()
-
-		ctx := context.Background()
-
-		// Read loop — just log messages for now
-		for {
-			_, msg, err := conn.Read(ctx)
-			if err != nil {
-				log.Println("read error:", err)
-				return
-			}
-			log.Println("got message:", string(msg))
-		}
-	})
-
-	log.Println("Server started on :8080")
-	log.Fatal(http.ListenAndServe(":8080", mux))
-
+	// ListenAndServe only ever returns on failure, so reaching Fatal is correct.
+	log.Fatal(http.ListenAndServe(addr, server.New(webDir)))
 }
