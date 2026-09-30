@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	TickRate     = 20
+	TickRate     = 60
 	TickDuration = time.Second / TickRate
-	TickDelta    = 1.0 / float64(TickRate) // the fixed dt you pass to Update
+	TickDelta    = 1.0 / float64(TickRate) // the fixed dt passed to Update
 )
 
 const (
