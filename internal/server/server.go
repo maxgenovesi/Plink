@@ -76,7 +76,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		log.Println("accept error:", err)
 		return
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 
 	// Add returns the post-increment value, so the first player is p1.
 	id := game.PlayerID("p" + strconv.FormatUint(s.nextID.Add(1), 10))
