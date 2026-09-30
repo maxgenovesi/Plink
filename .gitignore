@@ -1,3 +1,6 @@
 # Personal planning docs — kept locally, not shared
 ROADMAP.md
 PHASE-GUIDE.md
+
+# Claude Code local state (worktrees, settings)
+.claude/
