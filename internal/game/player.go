@@ -10,14 +10,6 @@ type Player struct {
 	Vel Vec
 }
 
-// The arena is one fixed rectangle in arena-units, identical for every match.
-// Both dimensions must stay larger than 2*PlayerRadius, or the low and high
-// bounds ClampTo derives from them cross.
-const (
-	ArenaWidth  = 1500.0
-	ArenaHeight = 1500.0
-)
-
 // Tuning constants. Units are arena-units and seconds.
 // Rates are per second so the tick rate can change without changing feel.
 const (
