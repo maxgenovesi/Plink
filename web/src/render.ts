@@ -1,10 +1,10 @@
 // Draws the latest server state onto the canvas once per display frame.
 // Pure view: it reads the connection and never writes to it.
 
-import type { Connection } from "./network.ts";
+import type { Connection, PlayerState } from "./network.ts";
 
-// Mirrors internal/game/player.go. The server is authoritative; these only
-// decide how things look.
+// Mirrors internal/game (arena size in game.go, radius in player.go). The
+// server is authoritative; these only decide how things look.
 const ARENA_WIDTH = 1500;
 const ARENA_HEIGHT = 1500;
 const PLAYER_RADIUS = 15;
@@ -17,6 +17,7 @@ const COLORS = {
   arena: "#1b1b22",
   border: "#3a3a48",
   player: "#4fc3f7",
+  other: "#ef9a9a",
   text: "#9a9aae",
 };
 
@@ -60,8 +61,9 @@ function resizeToDisplay(canvas: HTMLCanvasElement): void {
 }
 
 /**
- * Draws one frame: background, arena, and the player if a state has arrived,
- * otherwise a status line.
+ * Draws one frame: background, arena, and every player if a state has
+ * arrived, otherwise a status line. Our own player is drawn last, in its own
+ * colour, so it stays visible when players overlap.
  *
  * @param ctx    the canvas's 2D context
  * @param canvas the canvas, for its current pixel size
@@ -97,8 +99,27 @@ function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, conn: Co
     return;
   }
 
-  ctx.fillStyle = COLORS.player;
+  for (const p of state.players) {
+    if (p.id !== conn.id) {
+      drawPlayer(ctx, p, COLORS.other);
+    }
+  }
+  const you = state.players.find((p) => p.id === conn.id);
+  if (you) {
+    drawPlayer(ctx, you, COLORS.player);
+  }
+}
+
+/**
+ * Draws one player as a filled circle. Expects ctx to already be in arena-units.
+ *
+ * @param ctx    the canvas's 2D context
+ * @param player the player to draw; x and y are the circle's centre
+ * @param color  the fill colour
+ */
+function drawPlayer(ctx: CanvasRenderingContext2D, player: PlayerState, color: string): void {
+  ctx.fillStyle = color;
   ctx.beginPath();
-  ctx.arc(state.you.x, state.you.y, PLAYER_RADIUS, 0, Math.PI * 2);
+  ctx.arc(player.x, player.y, PLAYER_RADIUS, 0, Math.PI * 2);
   ctx.fill();
 }

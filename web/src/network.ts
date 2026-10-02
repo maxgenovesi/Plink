@@ -1,5 +1,6 @@
 // WebSocket link to the Go server. Mirrors internal/server/messages.go: the
-// client streams held keys up, the server streams authoritative state down.
+// client streams held keys up, the server says who we are once and then
+// streams the authoritative state of the whole world down.
 
 /** How often held keys are sent to the server. Matches the ~30/s in messages.go. */
 const INPUT_RATE_HZ = 30;
@@ -17,19 +18,27 @@ interface ClientInput extends InputState {
   seq: number;
 }
 
-/** Wire shape of playerState. */
+/** Wire shape of playerState: one player's entry in a WorldState. */
 export interface PlayerState {
   id: string;
   x: number;
   y: number;
+  /** Last input seq the server recorded for this player. */
+  ackSeq: number;
 }
 
-/** Wire shape of serverState, sent once per server tick. */
-export interface ServerState {
+/** Wire shape of serverWelcome, the first frame on every connection. */
+export interface ServerWelcome {
+  type: "welcome";
+  id: string;
+}
+
+/** Wire shape of worldState, sent once per server tick. Same for every client. */
+export interface WorldState {
   type: "state";
   tick: number;
-  ackSeq: number;
-  you: PlayerState;
+  /** Every player in the game, in no particular order; match by id. */
+  players: PlayerState[];
 }
 
 export type ConnectionStatus = "connecting" | "open" | "closed";
@@ -38,8 +47,11 @@ export type ConnectionStatus = "connecting" | "open" | "closed";
 export class Connection {
   status: ConnectionStatus = "connecting";
 
+  /** Our own player id, or null until the server's welcome arrives. */
+  id: string | null = null;
+
   /** Most recent state from the server, or null until the first one arrives. */
-  latest: ServerState | null = null;
+  latest: WorldState | null = null;
 
   private ws: WebSocket;
   private readInput: () => InputState;
@@ -89,7 +101,8 @@ export class Connection {
   }
 
   /**
-   * Decodes one frame from the server and stores it if it is a state update.
+   * Decodes one frame from the server: a welcome sets our id, a state update
+   * replaces latest, and anything else is ignored.
    *
    * @param e the raw message event; the server only sends JSON text frames
    */
@@ -101,7 +114,9 @@ export class Connection {
       console.warn("dropping non-JSON frame", e.data);
       return;
     }
-    if (isServerState(msg)) {
+    if (isWelcome(msg)) {
+      this.id = msg.id;
+    } else if (isWorldState(msg)) {
       this.latest = msg;
     }
   }
@@ -120,11 +135,21 @@ export function connect(readInput: () => InputState): Connection {
 }
 
 /**
- * Narrows an unknown decoded message to a ServerState.
+ * Narrows an unknown decoded message to a ServerWelcome.
  *
  * @param msg the value produced by JSON.parse
- * @return    true if msg has the "state" shape the server sends
+ * @return    true if msg has the "welcome" type the server sends
  */
-function isServerState(msg: unknown): msg is ServerState {
+function isWelcome(msg: unknown): msg is ServerWelcome {
+  return typeof msg === "object" && msg !== null && (msg as { type?: unknown }).type === "welcome";
+}
+
+/**
+ * Narrows an unknown decoded message to a WorldState.
+ *
+ * @param msg the value produced by JSON.parse
+ * @return    true if msg has the "state" type the server sends
+ */
+function isWorldState(msg: unknown): msg is WorldState {
   return typeof msg === "object" && msg !== null && (msg as { type?: unknown }).type === "state";
 }
