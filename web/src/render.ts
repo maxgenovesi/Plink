@@ -1,7 +1,8 @@
 // Draws the latest server state onto the canvas once per display frame.
 // Pure view: it reads the connection and never writes to it.
 
-import type { Connection, PlayerState } from "./network.ts";
+import type { Connection } from "./network.ts";
+import type { PlayerState } from "./protocol.ts";
 
 // Mirrors internal/game (arena size in game.go, radius in player.go). The
 // server is authoritative; these only decide how things look.

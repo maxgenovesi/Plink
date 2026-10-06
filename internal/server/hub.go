@@ -2,12 +2,12 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log"
 	"time"
 
 	"github.com/maxgenovesi/Plink/internal/game"
+	"github.com/maxgenovesi/Plink/internal/protocol"
 )
 
 // The simulation's clock. Rates in internal/game are per second, so TickRate
@@ -50,7 +50,7 @@ type hub struct {
 // player who sent it, since hub.inputs is shared by every connection.
 type playerInput struct {
 	id    game.PlayerID
-	input clientInput
+	input protocol.Input
 }
 
 // hubInputBufferSize is the capacity of hub.inputs. Every client's readLoop
@@ -129,22 +129,21 @@ func (h *hub) Run(ctx context.Context) {
 // broadcast marshals a snapshot once and fans the bytes out to every client.
 // snap is the world as of the tick just stepped; broadcast returns nothing.
 //
-// The snapshot is converted to a worldState first, pairing each player with the
-// last input Seq recorded for them, so one frame serves every client and each
-// finds its own entry by ID. The frame is shared, not copied, which is safe
+// The snapshot is converted to a protocol.State first, pairing each player with
+// the last input Seq recorded for them, so one frame serves every client and
+// each finds its own entry by ID. The frame is shared, not copied, which is safe
 // because nothing writes to it after this.
 //
 // Sends never block: a client whose outgoing buffer is full misses this frame
 // and catches up on the next, since every frame is the whole world. A snapshot
 // that fails to encode is logged and sent to nobody.
 func (h *hub) broadcast(snap game.Snapshot) {
-	state := worldState{
-		Type:    "state",
+	state := &protocol.State{
 		Tick:    snap.Tick,
-		Players: make([]playerState, 0, len(snap.Players)),
+		Players: make([]protocol.PlayerState, 0, len(snap.Players)),
 	}
 	for _, p := range snap.Players {
-		state.Players = append(state.Players, playerState{
+		state.Players = append(state.Players, protocol.PlayerState{
 			ID:     string(p.ID),
 			X:      p.X,
 			Y:      p.Y,
@@ -152,7 +151,7 @@ func (h *hub) broadcast(snap game.Snapshot) {
 		})
 	}
 
-	frame, err := json.Marshal(state)
+	frame, err := protocol.Encode(state)
 	if err != nil {
 		log.Printf("broadcast tick %d: %v", snap.Tick, err)
 		return

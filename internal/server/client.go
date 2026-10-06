@@ -2,11 +2,11 @@ package server
 
 import (
 	"context"
-	"encoding/json"
+	"log"
 
 	"github.com/coder/websocket"
-	"github.com/coder/websocket/wsjson"
 	"github.com/maxgenovesi/Plink/internal/game"
+	"github.com/maxgenovesi/Plink/internal/protocol"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -44,23 +44,38 @@ func newClient(id game.PlayerID, conn *websocket.Conn, h *hub) *client {
 	}
 }
 
-// readLoop decodes input frames off the socket and forwards each one to the
-// hub, tagged with this client's id. It runs until ctx is cancelled or the
+// readLoop decodes frames off the socket and forwards each Input to the hub,
+// tagged with this client's id. It runs until ctx is cancelled or the
 // connection fails, and returns the error that ended it.
+//
+// A frame that fails to decode, or decodes to a message the browser has no
+// business sending, is logged and skipped rather than ending the connection:
+// one bad frame from an out-of-date client should not kick the player.
 //
 // The forward never blocks: if the hub's input buffer is full the frame is
 // dropped, which costs nothing because the next one carries the full set of
 // held keys again.
 func (c *client) readLoop(ctx context.Context) error {
 	for {
-		var in clientInput
-		if err := wsjson.Read(ctx, c.conn, &in); err != nil {
+		_, data, err := c.conn.Read(ctx)
+		if err != nil {
 			return err
 		}
 
-		select {
-		case c.hub.inputs <- playerInput{id: c.id, input: in}:
+		msg, err := protocol.Decode(data)
+		if err != nil {
+			log.Printf("client %s: dropping frame: %v", c.id, err)
+			continue
+		}
+
+		switch m := msg.(type) {
+		case *protocol.Input:
+			select {
+			case c.hub.inputs <- playerInput{id: c.id, input: *m}:
+			default:
+			}
 		default:
+			log.Printf("client %s: ignoring unexpected %q", c.id, msg.Type())
 		}
 	}
 }
@@ -68,8 +83,8 @@ func (c *client) readLoop(ctx context.Context) error {
 // writeLoop drains c.outgoing to the socket. It is the ONLY goroutine
 // permitted to call conn.Write — coder/websocket forbids concurrent writes.
 //
-// Frames go out as MessageText, since everything queued on c.outgoing is
-// encoded JSON. writeLoop runs until ctx is cancelled or a write fails,
+// Frames go out as MessageText, since everything queued on c.outgoing is a
+// JSON envelope from protocol.Encode. writeLoop runs until ctx is cancelled or a write fails,
 // returning ctx.Err() or that write error; frames still sitting in c.outgoing
 // at that point are discarded, because a connection that is going away has no
 // use for them.
@@ -116,7 +131,7 @@ func (c *client) watchHub(ctx context.Context) error {
 // errgroup is what couples the loops together: each takes the derived ctx, so
 // the first non-nil return cancels it and unblocks the others.
 func (c *client) run(ctx context.Context) error {
-	welcome, err := json.Marshal(serverWelcome{Type: "welcome", ID: string(c.id)})
+	welcome, err := protocol.Encode(&protocol.Welcome{PlayerID: string(c.id), TickRate: TickRate})
 	if err != nil {
 		return err
 	}
